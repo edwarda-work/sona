@@ -10,6 +10,11 @@
     }));
   }
   window.addEventListener('sona-audio-config-request', () => publish().catch(console.warn));
+  window.addEventListener('sona-audio-state', ({ detail }) => {
+    if (!['off', 'ready', 'starting', 'filtering', 'fallback', 'closed'].includes(detail?.phase)) return;
+    void chrome.runtime.sendMessage({ type: 'sona.status', phase: detail.phase }).catch(() => {});
+  });
+  window.dispatchEvent(new CustomEvent('sona-audio-state-request'));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'sync' && changes.settings) publish().catch(console.warn);
   });

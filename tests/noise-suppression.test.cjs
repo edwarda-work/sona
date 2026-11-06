@@ -10,7 +10,9 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
 function setup({ enabled = true, failWorklet = false, delayProcessedSwitch = false } = {}) {
   class Track extends EventTarget {
-    constructor(kind = 'audio') { super(); this.kind = kind; this.enabled = true; this.readyState = 'live'; }
+    constructor(kind = 'audio') { super(); this.kind = kind; this._enabled = true; this.readyState = 'live'; }
+    get enabled() { return this._enabled; }
+    set enabled(value) { this._enabled = Boolean(value); }
     stop() { this.readyState = 'ended'; }
     clone() { return new Track(this.kind); }
     applyConstraints(constraints) { this.applied = constraints; return Promise.resolve(); }
@@ -77,6 +79,8 @@ function setup({ enabled = true, failWorklet = false, delayProcessedSwitch = fal
     close() { this.closed = true; }
   }
   const window = new EventTarget();
+  const phases = [];
+  window.addEventListener('sona-audio-state', event => phases.push(event.detail.phase));
   window.RTCPeerConnection = PeerConnection;
   window.RTCRtpSender = Sender;
   class CustomEvent extends Event { constructor(name, options) { super(name); this.detail = options?.detail; } }
@@ -97,7 +101,7 @@ function setup({ enabled = true, failWorklet = false, delayProcessedSwitch = fal
     enabled, baseUrl: 'chrome-extension://' + 'a'.repeat(32) + '/vendor/rnnoise/'
   } }));
   return { navigator, window, CustomEvent, Track, Stream, AudioElement, PeerConnection,
-    contexts, worklets, players, calls, warnings, pendingSwitches };
+    contexts, worklets, players, calls, warnings, pendingSwitches, phases };
 }
 
 test('outgoing call starts on original microphone and upgrades after RNNoise is ready', async () => {
@@ -144,6 +148,51 @@ test('disabling while the processed track is attaching restores the live microph
   await tick();
   assert.equal(sender.track, raw);
   assert.equal(s.contexts[0].state, 'closed');
+});
+
+test('turning suppression back on filters the active microphone', async () => {
+  const s = setup();
+  const raw = (await s.navigator.mediaDevices.getUserMedia({ audio: true })).getAudioTracks()[0];
+  const sender = new s.PeerConnection().addTrack(raw);
+  await tick();
+  assert.notEqual(sender.track, raw);
+  const baseUrl = 'chrome-extension://' + 'a'.repeat(32) + '/vendor/rnnoise/';
+  s.window.dispatchEvent(new s.CustomEvent('sona-audio-config', { detail: { enabled: false, baseUrl } }));
+  await tick();
+  assert.equal(sender.track, raw);
+  s.window.dispatchEvent(new s.CustomEvent('sona-audio-config', { detail: { enabled: true, baseUrl } }));
+  await tick();
+  assert.notEqual(sender.track, raw);
+  assert.equal(s.contexts.length, 2);
+  assert.equal(s.contexts[0].state, 'closed');
+});
+
+test('enabling during fallback waits for the original microphone before filtering', async () => {
+  const s = setup({ delayProcessedSwitch: true });
+  const raw = (await s.navigator.mediaDevices.getUserMedia({ audio: true })).getAudioTracks()[0];
+  const sender = new s.PeerConnection().addTrack(raw);
+  await tick();
+  const baseUrl = 'chrome-extension://' + 'a'.repeat(32) + '/vendor/rnnoise/';
+  s.window.dispatchEvent(new s.CustomEvent('sona-audio-config', { detail: { enabled: false, baseUrl } }));
+  s.window.dispatchEvent(new s.CustomEvent('sona-audio-config', { detail: { enabled: true, baseUrl } }));
+  s.pendingSwitches.shift()();
+  await tick();
+  assert.equal(s.contexts[0].state, 'closed');
+  assert.equal(s.pendingSwitches.length, 1);
+  s.pendingSwitches.shift()();
+  await tick();
+  assert.notEqual(sender.track, raw);
+});
+
+test('muting the original microphone also mutes processed audio', async () => {
+  const s = setup();
+  const raw = (await s.navigator.mediaDevices.getUserMedia({ audio: true })).getAudioTracks()[0];
+  const sender = new s.PeerConnection().addTrack(raw);
+  await tick();
+  raw.enabled = false;
+  assert.equal(sender.track.enabled, false);
+  raw.enabled = true;
+  assert.equal(sender.track.enabled, true);
 });
 
 test('fallback preserves mute and recovers when the audio context is interrupted', async () => {
@@ -202,4 +251,56 @@ test('disabled suppression uses original capture without any processor', async (
   await tick();
   assert.equal(sender.track, raw);
   assert.equal(s.contexts.length, 0);
+});
+
+test('a microphone captured while off can be filtered without restarting the call', async () => {
+  const s = setup({ enabled: false });
+  const raw = (await s.navigator.mediaDevices.getUserMedia({ audio: true })).getAudioTracks()[0];
+  const sender = new s.PeerConnection().addTrack(raw);
+  const baseUrl = 'chrome-extension://' + 'a'.repeat(32) + '/vendor/rnnoise/';
+  s.window.dispatchEvent(new s.CustomEvent('sona-audio-config', { detail: { enabled: true, baseUrl } }));
+  await tick();
+  assert.notEqual(sender.track, raw);
+  assert.equal(s.contexts.length, 1);
+});
+
+test('replacing the sender with its original microphone resumes filtering', async () => {
+  const s = setup();
+  const raw = (await s.navigator.mediaDevices.getUserMedia({ audio: true })).getAudioTracks()[0];
+  const sender = new s.PeerConnection().addTrack(raw);
+  await tick();
+  assert.notEqual(sender.track, raw);
+  await sender.replaceTrack(raw);
+  await tick();
+  assert.notEqual(sender.track, raw);
+  assert.equal(s.contexts.length, 2);
+  assert.equal(s.contexts[0].state, 'closed');
+});
+
+
+test('status reports filtering, fallback, and off truthfully', async () => {
+  const s = setup();
+  const raw = (await s.navigator.mediaDevices.getUserMedia({ audio: true })).getAudioTracks()[0];
+  new s.PeerConnection().addTrack(raw);
+  await tick();
+  assert.equal(s.phases.at(-1), 'filtering');
+  s.worklets[0].onprocessorerror();
+  await tick();
+  assert.equal(s.phases.at(-1), 'fallback');
+  s.window.dispatchEvent(new s.CustomEvent('sona-audio-config', { detail: {
+    enabled: false, baseUrl: 'chrome-extension://' + 'a'.repeat(32) + '/vendor/rnnoise/'
+  } }));
+  assert.equal(s.phases.at(-1), 'off');
+});
+
+
+test('page exit ends status without publishing a stale filtering state', async () => {
+  const s = setup();
+  const raw = (await s.navigator.mediaDevices.getUserMedia({ audio: true })).getAudioTracks()[0];
+  new s.PeerConnection().addTrack(raw);
+  await tick();
+  assert.equal(s.phases.at(-1), 'filtering');
+  s.window.dispatchEvent(new Event('pagehide'));
+  await tick();
+  assert.equal(s.phases.at(-1), 'closed');
 });

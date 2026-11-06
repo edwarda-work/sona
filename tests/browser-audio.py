@@ -56,6 +56,10 @@ async def verify(port):
                   const remote = await incoming;
                   for (let i = 0; i < 40 && sender.track === raw; i++) await wait(100);
                   const upgraded = sender.track !== raw;
+                  raw.enabled = false;
+                  const muteFollowed = !sender.track.enabled;
+                  raw.enabled = true;
+                  const unmuteFollowed = sender.track.enabled;
                   const playback = new Audio();
                   const remoteStream = new MediaStream([remote]);
                   playback.srcObject = remoteStream;
@@ -95,7 +99,8 @@ async def verify(port):
                   }
                   await wait(100);
                   const allClosed = window.__audioContexts.every(item => item.state === 'closed');
-                  return { startedRaw, upgraded, originalPlaybackStream, customerPlaybackUntouched,
+                  return { startedRaw, upgraded, muteFollowed, unmuteFollowed,
+                    originalPlaybackStream, customerPlaybackUntouched,
                     customerPlaybackStillUntouched,
                     stillProcessed, repeatedUpgrades, allClosed,
                     contextCount: window.__audioContexts.length, remotePeak, warnings, logs };
@@ -113,6 +118,7 @@ async def verify(port):
         print(json.dumps(value, indent=2))
         assert value['startedRaw'], 'The call did not begin with the original microphone'
         assert value['upgraded'], 'Outgoing RNNoise did not become active'
+        assert value['muteFollowed'] and value['unmuteFollowed'], 'Processed audio did not follow microphone mute'
         assert value['originalPlaybackStream'], 'The softphone playback stream was replaced'
         assert value['customerPlaybackUntouched'], 'Customer playback was changed'
         assert value['customerPlaybackStillUntouched'], 'Customer playback changed during the call'
