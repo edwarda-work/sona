@@ -15,6 +15,29 @@
   const requestedTracks = new WeakMap();
   const modelCache = new Map();
   const pendingFallbacks = new Set();
+  const failedTracks = new WeakSet();
+  let pageClosing = false;
+
+  function phase() {
+    if (!config) return 'starting';
+    if (!config.enabled) return 'off';
+    for (const [sender, track] of trackedSenders) {
+      const session = captures.get(track);
+      if (session?.output && sender.track === session.output && !session.closed) return 'filtering';
+    }
+    for (const track of trackedSenders.values()) {
+      if (failedTracks.has(track)) return 'fallback';
+    }
+    for (const session of senders.values()) {
+      if (session.loading && !session.closed) return 'starting';
+    }
+    return 'ready';
+  }
+
+  function publishState() {
+    if (pageClosing) return;
+    window.dispatchEvent(new CustomEvent('sona-audio-state', { detail: { phase: phase() } }));
+  }
   const STARTUP_MS = 3000;
   const HEARTBEAT_MS = 2500;
   let config;
@@ -102,6 +125,7 @@
     senders.delete(sender);
     session.senders.delete(sender);
     if (!session.senders.size) session.close();
+    publishState();
   }
 
   function attach(sender, track) {
@@ -115,6 +139,7 @@
     session.senders.add(sender);
     if (session.output) queueSwitch(sender, session);
     else if (!session.loading) session.loading = startOutgoing(session);
+    publishState();
   }
 
   function queueSwitch(sender, session) {
@@ -127,6 +152,7 @@
     if (session.closed || session.failing || senders.get(sender) !== session || sender.track !== session.input) return;
     try {
       await nativeReplaceTrack.call(sender, session.output);
+      publishState();
       if (senders.get(sender) !== session || session.closed || session.failing) {
         if (sender.track === session.output) {
           await nativeReplaceTrack.call(sender, requestedTracks.get(sender) || session.input);
@@ -144,6 +170,7 @@
     session.failing = true;
     session.fallback = (async () => {
       console.warn('[Sona audio] Using original microphone:', reason);
+      if (reason !== 'Suppression disabled' && reason !== 'Page hidden') failedTracks.add(session.input);
       if (config?.enabled && session.input.readyState === 'live') {
         void session.input.applyConstraints?.({ noiseSuppression: true }).catch(() => {});
       }
@@ -158,6 +185,7 @@
       }
       await Promise.allSettled(replacements);
       session.close();
+      publishState();
     })();
     pendingFallbacks.add(session.fallback);
     void session.fallback.finally(() => pendingFallbacks.delete(session.fallback));
@@ -205,6 +233,7 @@
       }
     };
     captures.set(track, session);
+    failedTracks.delete(track);
     if (!watchedTracks.has(track)) {
       watchedTracks.add(track);
       track.addEventListener('ended', () => captures.get(track)?.close(), { once: true });
@@ -306,6 +335,7 @@
     else {
       for (const session of [...new Set(senders.values())]) fallbackOutgoing(session, 'Suppression disabled');
     }
+    publishState();
     if (config.enabled && wasEnabled !== true) {
       void Promise.allSettled([...pendingFallbacks]).then(() => {
         if (!config.enabled) return;
@@ -317,8 +347,11 @@
       });
     }
   });
+  window.addEventListener('sona-audio-state-request', publishState);
   window.dispatchEvent(new CustomEvent('sona-audio-config-request'));
   window.addEventListener('pagehide', () => {
+    pageClosing = true;
+    window.dispatchEvent(new CustomEvent('sona-audio-state', { detail: { phase: 'closed' } }));
     for (const session of [...new Set(senders.values())]) void fallbackOutgoing(session, 'Page hidden');
   });
 })();

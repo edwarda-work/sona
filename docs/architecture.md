@@ -19,3 +19,5 @@ The extension does not intercept remote tracks, speakers, media elements, or net
 ## Release gate
 
 Unit tests cover startup, fallback, live switching, mute, repeated calls, and untouched incoming playback. The Chrome smoke test checks a one-minute WebRTC call and ten more calls with a fake microphone. Real Google Meet and call-platform pilots must still cover long sessions, mute, device changes, and speech quality before merging a development release into `main`.
+
+The main-world script reports state changes through the isolated bridge. The background worker stores each frame's current phase for its tab and removes it when the frame closes or the tab navigates. The popup reads these phases and gives fallback precedence over filtering so a partial failure is visible. No audio or transcript is stored.

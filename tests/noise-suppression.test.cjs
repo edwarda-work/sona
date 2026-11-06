@@ -79,6 +79,8 @@ function setup({ enabled = true, failWorklet = false, delayProcessedSwitch = fal
     close() { this.closed = true; }
   }
   const window = new EventTarget();
+  const phases = [];
+  window.addEventListener('sona-audio-state', event => phases.push(event.detail.phase));
   window.RTCPeerConnection = PeerConnection;
   window.RTCRtpSender = Sender;
   class CustomEvent extends Event { constructor(name, options) { super(name); this.detail = options?.detail; } }
@@ -99,7 +101,7 @@ function setup({ enabled = true, failWorklet = false, delayProcessedSwitch = fal
     enabled, baseUrl: 'chrome-extension://' + 'a'.repeat(32) + '/vendor/rnnoise/'
   } }));
   return { navigator, window, CustomEvent, Track, Stream, AudioElement, PeerConnection,
-    contexts, worklets, players, calls, warnings, pendingSwitches };
+    contexts, worklets, players, calls, warnings, pendingSwitches, phases };
 }
 
 test('outgoing call starts on original microphone and upgrades after RNNoise is ready', async () => {
@@ -273,4 +275,32 @@ test('replacing the sender with its original microphone resumes filtering', asyn
   assert.notEqual(sender.track, raw);
   assert.equal(s.contexts.length, 2);
   assert.equal(s.contexts[0].state, 'closed');
+});
+
+
+test('status reports filtering, fallback, and off truthfully', async () => {
+  const s = setup();
+  const raw = (await s.navigator.mediaDevices.getUserMedia({ audio: true })).getAudioTracks()[0];
+  new s.PeerConnection().addTrack(raw);
+  await tick();
+  assert.equal(s.phases.at(-1), 'filtering');
+  s.worklets[0].onprocessorerror();
+  await tick();
+  assert.equal(s.phases.at(-1), 'fallback');
+  s.window.dispatchEvent(new s.CustomEvent('sona-audio-config', { detail: {
+    enabled: false, baseUrl: 'chrome-extension://' + 'a'.repeat(32) + '/vendor/rnnoise/'
+  } }));
+  assert.equal(s.phases.at(-1), 'off');
+});
+
+
+test('page exit ends status without publishing a stale filtering state', async () => {
+  const s = setup();
+  const raw = (await s.navigator.mediaDevices.getUserMedia({ audio: true })).getAudioTracks()[0];
+  new s.PeerConnection().addTrack(raw);
+  await tick();
+  assert.equal(s.phases.at(-1), 'filtering');
+  s.window.dispatchEvent(new Event('pagehide'));
+  await tick();
+  assert.equal(s.phases.at(-1), 'closed');
 });

@@ -6,7 +6,7 @@ Sona filters the user's microphone during browser calls and meetings on the site
 
 Run `npm run build` in this folder. In `chrome://extensions`, remove or disable the older Sona extension. Enable Developer mode, choose **Load unpacked**, and select this folder's `dist` directory. Reload the call or meeting tab. There is one switch in the popup, **Noise cancellation**. The switch can be changed during an active call.
 
-The call site requests microphone permission; Sona does not request it during installation. When filtering is enabled, the call starts with the original microphone, then switches to the filtered track when the local RNNoise processor is ready. If processing fails, Sona restores the original microphone and requests browser noise suppression where supported.
+The call site requests microphone permission; Sona does not request it during installation. When filtering is enabled, the call starts with the original microphone, then switches to the filtered track when the local RNNoise processor is ready. If processing fails, Sona restores the original microphone and requests browser noise suppression where supported. The popup shows whether Sona is ready, starting, filtering, using the original microphone after a failure, or off. Status is stored only for the current browser tab and contains no audio.
 
 ## Verification
 

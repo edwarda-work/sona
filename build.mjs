@@ -9,6 +9,7 @@ const files = [
   'manifest.json',
   'popup.html',
   'popup.js',
+  'background.js',
   'noise-bridge.js',
   'noise-suppression.js',
   'noise-voice-filter.js',
