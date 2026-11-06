@@ -6,11 +6,15 @@
   const originalGetUserMedia = devices.getUserMedia.bind(devices);
   const originalTrackClone = MediaStreamTrack.prototype.clone;
   const originalTrackStop = MediaStreamTrack.prototype.stop;
+  const nativeEnabled = Object.getOwnPropertyDescriptor(MediaStreamTrack.prototype, 'enabled');
   const originalStreamClone = MediaStream.prototype.clone;
   const captures = new WeakMap();
+  const watchedTracks = new WeakSet();
   const senders = new Map();
+  const trackedSenders = new Map();
   const requestedTracks = new WeakMap();
   const modelCache = new Map();
+  const pendingFallbacks = new Set();
   const STARTUP_MS = 3000;
   const HEARTBEAT_MS = 2500;
   let config;
@@ -91,7 +95,8 @@
   const NativePC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
   const nativeReplaceTrack = window.RTCRtpSender?.prototype.replaceTrack;
 
-  function unbind(sender) {
+  function unbind(sender, forget = false) {
+    if (forget) trackedSenders.delete(sender);
     const session = senders.get(sender);
     if (!session) return;
     senders.delete(sender);
@@ -100,8 +105,11 @@
   }
 
   function attach(sender, track) {
+    const captured = captures.has(track);
     unbind(sender);
-    const session = captures.get(track);
+    const session = captured && track.readyState === 'live' ? registerCapture(track) : null;
+    if (session && track.readyState === 'live') trackedSenders.set(sender, track);
+    else trackedSenders.delete(sender);
     if (!session || session.closed || !config?.enabled) return;
     senders.set(sender, session);
     session.senders.add(sender);
@@ -126,28 +134,34 @@
       }
     } catch (error) {
       console.warn('[Sona audio] Could not switch outgoing track:', error.message);
-      unbind(sender);
+      unbind(sender, true);
     }
   }
 
-  async function fallbackOutgoing(session, reason) {
-    if (session.closed || session.failing) return;
+  function fallbackOutgoing(session, reason) {
+    if (session.closed) return Promise.resolve();
+    if (session.fallback) return session.fallback;
     session.failing = true;
-    console.warn('[Sona audio] Using original microphone:', reason);
-    if (config?.enabled && session.input.readyState === 'live') {
-      void session.input.applyConstraints?.({ noiseSuppression: true }).catch(() => {});
-    }
-    if (session.output && !session.output.enabled) session.input.enabled = false;
-    await Promise.allSettled([...session.switches]);
-    const replacements = [];
-    for (const sender of session.senders) {
-      if (sender.track === session.output) {
-        replacements.push(Promise.resolve().then(() => nativeReplaceTrack.call(sender, session.input)).catch(error =>
-          console.warn('[Sona audio] Microphone fallback failed:', error.message)));
+    session.fallback = (async () => {
+      console.warn('[Sona audio] Using original microphone:', reason);
+      if (config?.enabled && session.input.readyState === 'live') {
+        void session.input.applyConstraints?.({ noiseSuppression: true }).catch(() => {});
       }
-    }
-    await Promise.allSettled(replacements);
-    session.close();
+      if (session.output) session.input.enabled = session.output.enabled;
+      await Promise.allSettled([...session.switches]);
+      const replacements = [];
+      for (const sender of session.senders) {
+        if (sender.track === session.output) {
+          replacements.push(Promise.resolve().then(() => nativeReplaceTrack.call(sender, session.input)).catch(error =>
+            console.warn('[Sona audio] Microphone fallback failed:', error.message)));
+        }
+      }
+      await Promise.allSettled(replacements);
+      session.close();
+    })();
+    pendingFallbacks.add(session.fallback);
+    void session.fallback.finally(() => pendingFallbacks.delete(session.fallback));
+    return session.fallback;
   }
 
   async function startOutgoing(session) {
@@ -171,6 +185,8 @@
   }
 
   function registerCapture(track) {
+    const existing = captures.get(track);
+    if (existing && !existing.closed) return existing;
     const session = {
       input: track, senders: new Set(), switches: new Set(), closed: false, loading: null,
       close() {
@@ -189,7 +205,24 @@
       }
     };
     captures.set(track, session);
-    track.addEventListener('ended', () => session.close(), { once: true });
+    if (!watchedTracks.has(track)) {
+      watchedTracks.add(track);
+      track.addEventListener('ended', () => captures.get(track)?.close(), { once: true });
+    }
+    return session;
+  }
+
+  if (nativeEnabled?.get && nativeEnabled?.set && nativeEnabled.configurable) {
+    Object.defineProperty(MediaStreamTrack.prototype, 'enabled', {
+      configurable: true,
+      enumerable: nativeEnabled.enumerable,
+      get() { return nativeEnabled.get.call(this); },
+      set(value) {
+        nativeEnabled.set.call(this, value);
+        const output = captures.get(this)?.output;
+        if (output && output.readyState === 'live') nativeEnabled.set.call(output, value);
+      }
+    });
   }
 
   // A cloned microphone track needs its own lifecycle and denoiser.
@@ -226,12 +259,12 @@
     const removeTrack = pc.removeTrack;
     pc.removeTrack = function (sender) {
       const result = removeTrack.call(this, sender);
-      unbind(sender);
+      unbind(sender, true);
       return result;
     };
     const close = pc.close;
     pc.close = function () {
-      for (const sender of this.getSenders()) unbind(sender);
+      for (const sender of this.getSenders()) unbind(sender, true);
       return close.call(this);
     };
     window.RTCRtpSender.prototype.replaceTrack = async function (track) {
@@ -243,7 +276,12 @@
   }
 
   devices.getUserMedia = async function (constraints) {
-    if (!constraints?.audio || !config?.enabled) return originalGetUserMedia(constraints);
+    if (!constraints?.audio) return originalGetUserMedia(constraints);
+    if (!config?.enabled) {
+      const stream = await originalGetUserMedia(constraints);
+      for (const track of stream.getAudioTracks()) registerCapture(track);
+      return stream;
+    }
     const requested = typeof constraints.audio === 'object' ? constraints.audio : {};
     // RNNoise handles noise; the browser still handles acoustic echo.
     const audio = { ...requested, noiseSuppression: false, echoCancellation: true };
@@ -262,10 +300,21 @@
     const detail = event.detail;
     if (!detail || typeof detail.enabled !== 'boolean' ||
         !/^chrome-extension:\/\/[a-p]{32}\/vendor\/rnnoise\/$/.test(detail.baseUrl)) return;
+    const wasEnabled = config?.enabled;
     config = { enabled: detail.enabled, baseUrl: detail.baseUrl };
     if (config.enabled) void loadModel(config.baseUrl).catch(() => {});
     else {
       for (const session of [...new Set(senders.values())]) fallbackOutgoing(session, 'Suppression disabled');
+    }
+    if (config.enabled && wasEnabled !== true) {
+      void Promise.allSettled([...pendingFallbacks]).then(() => {
+        if (!config.enabled) return;
+        for (const [sender, track] of trackedSenders) {
+          if (sender.track !== track || track.readyState !== 'live') continue;
+          registerCapture(track);
+          attach(sender, track);
+        }
+      });
     }
   });
   window.dispatchEvent(new CustomEvent('sona-audio-config-request'));

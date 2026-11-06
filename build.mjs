@@ -18,6 +18,12 @@ const manifest = JSON.parse(await readFile(join(source, 'manifest.json'), 'utf8'
 if (manifest.name !== 'Sona' || manifest.description.includes('Bidirectional')) {
   throw new Error('Expected the microphone-only Sona manifest');
 }
+const sites = manifest.content_scripts[0].matches;
+if (!sites.includes('https://meet.google.com/*') ||
+    manifest.content_scripts.some(script => JSON.stringify(script.matches) !== JSON.stringify(sites)) ||
+    JSON.stringify(manifest.web_accessible_resources[0].matches) !== JSON.stringify(sites)) {
+  throw new Error('Content scripts and audio assets must cover the same call sites');
+}
 
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });

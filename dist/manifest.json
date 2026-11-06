@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sona",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Removes background noise from the agent microphone during browser calls.",
   "permissions": ["storage"],
   "icons": {
@@ -21,7 +21,8 @@
         "https://*.freshdesk.com/*",
         "https://ec2-52-49-51-30.eu-west-1.compute.amazonaws.com/*",
         "https://*.freshcaller.com/*",
-        "https://*.freshworks.com/*"
+        "https://*.freshworks.com/*",
+        "https://meet.google.com/*"
       ],
       "js": ["noise-voice-filter.js", "noise-suppression.js"],
       "run_at": "document_start",
@@ -34,7 +35,8 @@
         "https://*.freshdesk.com/*",
         "https://ec2-52-49-51-30.eu-west-1.compute.amazonaws.com/*",
         "https://*.freshcaller.com/*",
-        "https://*.freshworks.com/*"
+        "https://*.freshworks.com/*",
+        "https://meet.google.com/*"
       ],
       "js": ["noise-bridge.js"],
       "run_at": "document_start",
@@ -49,7 +51,8 @@
         "https://*.freshdesk.com/*",
         "https://ec2-52-49-51-30.eu-west-1.compute.amazonaws.com/*",
         "https://*.freshcaller.com/*",
-        "https://*.freshworks.com/*"
+        "https://*.freshworks.com/*",
+        "https://meet.google.com/*"
       ]
     }
   ]
