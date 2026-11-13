@@ -11,6 +11,7 @@
     h1 { margin: 0; font-size: 20px; line-height: 1.2; }
     main { padding: 18px 20px 20px; }
     label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 700; cursor: pointer; }
+    p + label { margin-top: 16px; }
     input { appearance: none; flex: none; width: 44px; height: 26px; margin: 0; border: 2px solid var(--sona-pink); border-radius: 99px; background: var(--white); cursor: pointer; position: relative; }
     input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--sona-pink); transition: transform .15s ease, background .15s ease; }
     input:checked { background: var(--sona-pink); }
@@ -26,6 +27,8 @@
   <main>
     <label for="noiseSuppression">Noise cancellation <input id="noiseSuppression" type="checkbox"></label>
     <p>Clearer microphone audio during calls and meetings. Other people's audio plays normally.</p>
+    <label for="autoClosePopup">Auto-close call popup <input id="autoClosePopup" type="checkbox"></label>
+    <p class="note">Automatically close the XCALLY customer popup when a call ends.</p>
     <p class="note">Reload call or meeting tabs after updating Sona.</p>
     <p class="note">Microphone status</p>
     <p id="status" role="status">Checking…</p>

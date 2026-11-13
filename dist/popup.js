@@ -1,4 +1,5 @@
 const toggle = document.getElementById('noiseSuppression');
+const autoCloseToggle = document.getElementById('autoClosePopup');
 const status = document.getElementById('status');
 const prefix = 'sona.status.';
 const labels = {
@@ -30,17 +31,37 @@ async function refreshStatus() {
 
 chrome.storage.sync.get('settings', ({ settings = {} }) => {
   toggle.checked = settings.noiseSuppression !== false;
+  if (autoCloseToggle) autoCloseToggle.checked = settings.autoClosePopup !== false;
   void refreshStatus();
 });
+
+async function saveSettings() {
+  await chrome.storage.sync.set({
+    settings: {
+      noiseSuppression: toggle.checked,
+      autoClosePopup: autoCloseToggle ? autoCloseToggle.checked : true
+    }
+  });
+}
 
 toggle.addEventListener('change', async () => {
   const enabled = toggle.checked;
   status.textContent = enabled ? labels.starting : labels.off;
   try {
-    await chrome.storage.sync.set({ settings: { noiseSuppression: enabled } });
+    await saveSettings();
     await refreshStatus();
   } catch (error) {
     toggle.checked = !enabled;
+    status.textContent = `Could not save setting: ${error.message}`;
+  }
+});
+
+autoCloseToggle?.addEventListener('change', async () => {
+  const enabled = autoCloseToggle.checked;
+  try {
+    await saveSettings();
+  } catch (error) {
+    autoCloseToggle.checked = !enabled;
     status.textContent = `Could not save setting: ${error.message}`;
   }
 });
@@ -51,6 +72,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (area === 'sync' && changes.settings) {
     toggle.checked = changes.settings.newValue?.noiseSuppression !== false;
+    if (autoCloseToggle) autoCloseToggle.checked = changes.settings.newValue?.autoClosePopup !== false;
     void refreshStatus();
   }
 });
