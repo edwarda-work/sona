@@ -20,6 +20,20 @@ const SonaVoiceFilter = (() => {
       filter.Q.value = 20 * Math.log10(Math.SQRT1_2);
       return filter;
     },
+    // Incoming customer audio only: even out quiet and loud callers after
+    // RNNoise so the agent hears a steady level. Must return one AudioNode.
+    createCustomerLeveler(context) {
+      const leveler = context.createDynamicsCompressor();
+      // Gentle levelling: callers above -24 dBFS are brought down 3:1, and the
+      // node's built-in make-up gain (spec: (1 / full-range gain)^0.6, about
+      // +9.6 dB here) lifts quiet callers. No separate gain node is needed.
+      leveler.threshold.value = -24;
+      leveler.knee.value = 12;    // soft knee: no audible switch-on point
+      leveler.ratio.value = 3;
+      leveler.attack.value = 0.005;  // catch sudden shouts within 5 ms
+      leveler.release.value = 0.25;  // slow enough to avoid "breathing" between words
+      return leveler;
+    },
     createPeakLimiter(context) {
       const limiter = context.createWaveShaper();
       limiter.curve = curve;

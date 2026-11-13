@@ -1,5 +1,6 @@
 const toggle = document.getElementById('noiseSuppression');
 const autoCloseToggle = document.getElementById('autoClosePopup');
+const incomingToggle = document.getElementById('incomingClarity');
 const status = document.getElementById('status');
 const prefix = 'sona.status.';
 const labels = {
@@ -32,6 +33,7 @@ async function refreshStatus() {
 chrome.storage.sync.get('settings', ({ settings = {} }) => {
   toggle.checked = settings.noiseSuppression !== false;
   if (autoCloseToggle) autoCloseToggle.checked = settings.autoClosePopup !== false;
+  if (incomingToggle) incomingToggle.checked = settings.incomingClarity === true;
   void refreshStatus();
 });
 
@@ -39,7 +41,8 @@ async function saveSettings() {
   await chrome.storage.sync.set({
     settings: {
       noiseSuppression: toggle.checked,
-      autoClosePopup: autoCloseToggle ? autoCloseToggle.checked : true
+      autoClosePopup: autoCloseToggle ? autoCloseToggle.checked : true,
+      incomingClarity: incomingToggle ? incomingToggle.checked : false
     }
   });
 }
@@ -56,15 +59,17 @@ toggle.addEventListener('change', async () => {
   }
 });
 
-autoCloseToggle?.addEventListener('change', async () => {
-  const enabled = autoCloseToggle.checked;
-  try {
-    await saveSettings();
-  } catch (error) {
-    autoCloseToggle.checked = !enabled;
-    status.textContent = `Could not save setting: ${error.message}`;
-  }
-});
+for (const extra of [autoCloseToggle, incomingToggle]) {
+  extra?.addEventListener('change', async () => {
+    const enabled = extra.checked;
+    try {
+      await saveSettings();
+    } catch (error) {
+      extra.checked = !enabled;
+      status.textContent = `Could not save setting: ${error.message}`;
+    }
+  });
+}
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'session' && Object.keys(changes).some(key => key.startsWith(prefix))) {
@@ -73,6 +78,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.settings) {
     toggle.checked = changes.settings.newValue?.noiseSuppression !== false;
     if (autoCloseToggle) autoCloseToggle.checked = changes.settings.newValue?.autoClosePopup !== false;
+    if (incomingToggle) incomingToggle.checked = changes.settings.newValue?.incomingClarity === true;
     void refreshStatus();
   }
 });

@@ -6,6 +6,7 @@
       detail: {
         enabled: settings.noiseSuppression !== false,
         autoClosePopup: settings.autoClosePopup !== false,
+        incomingEnabled: settings.incomingClarity === true,
         baseUrl: chrome.runtime.getURL('vendor/rnnoise/')
       }
     }));
