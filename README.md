@@ -12,4 +12,6 @@ The call site requests microphone permission; Sona does not request it during in
 
 Run `npm test` for microphone lifecycle tests. The optional browser test is `python3 tests/browser-audio.py /path/to/chrome`; it needs Python's `websockets` package and runs a fake-microphone call for one minute plus ten repeated calls. It checks that customer playback remains untouched and audio contexts close.
 
+The beta **Clearer customer audio** setting has its own smoke test: `python3 tests/browser-incoming.py /path/to/chrome`. It runs a loopback call with synthesized speech (macOS `say`, falling back to Chrome's beep tone elsewhere) and checks that the customer is audible immediately, playback switches to the processed stream, speech keeps a usable level, toggling the setting restores the original, and all audio contexts close.
+
 Before team rollout, test with agents for a full shift on the actual call platform and with users in long and repeated Google Meet meetings. Confirm that others hear speech clearly and check mute, hold, headset changes, and switching Sona on and off during a call.

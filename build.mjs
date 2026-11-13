@@ -14,6 +14,7 @@ const files = [
   'noise-suppression.js',
   'noise-voice-filter.js',
   'xcally-popup-closer.js',
+  'incoming-audio.js',
 ];
 
 const manifest = JSON.parse(await readFile(join(source, 'manifest.json'), 'utf8'));
