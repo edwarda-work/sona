@@ -5,6 +5,7 @@
     window.dispatchEvent(new CustomEvent('sona-audio-config', {
       detail: {
         enabled: settings.noiseSuppression !== false,
+        autoClosePopup: settings.autoClosePopup !== false,
         baseUrl: chrome.runtime.getURL('vendor/rnnoise/')
       }
     }));

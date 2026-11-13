@@ -25,7 +25,7 @@
         "https://*.freshworks.com/*",
         "https://meet.google.com/*"
       ],
-      "js": ["noise-voice-filter.js", "noise-suppression.js"],
+      "js": ["noise-voice-filter.js", "noise-suppression.js", "xcally-popup-closer.js"],
       "run_at": "document_start",
       "all_frames": true,
       "world": "MAIN"
